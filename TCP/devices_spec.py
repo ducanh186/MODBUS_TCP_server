@@ -62,3 +62,9 @@ DEVICES = {
         },
     },
 }
+
+# PCS <-> BMS pairing (by unit_id)
+PCS_TO_BMS = {
+    2: 4,   # PCS1 (uid=2) <-> BMS1 (uid=4)
+    3: 5,   # PCS2 (uid=3) <-> BMS2 (uid=5)
+}
