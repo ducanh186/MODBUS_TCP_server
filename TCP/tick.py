@@ -7,10 +7,16 @@ Runs in a background daemon thread, updates device registers every tick:
 3. Update BMS IR0 (soc) based on: delta_soc = -(power * dt) / (capacity * 3600) * 100
 4. Aggregate PMS IR0..IR3 from PCS + BMS values
 
+Addressing:
+    All register addresses are 0-based.  The +1 shift required by
+    pymodbus internals is handled inside LockedDataBlock / ZeroBasedDeviceContext
+    (see modbus_tcp.py), so tick code simply uses addr 0, 1, 2, ... directly.
+
 Threading:
-- One threading.Lock() wraps each tick batch to prevent half-updated state.
-- Individual register writes are CPython-GIL-atomic (uint16), so Modbus reads
-  between ticks see consistent per-register values.
+    A shared threading.RLock (created in modbus_tcp.create_server_context)
+    guards both individual register access (inside LockedDataBlock) and
+    the full tick batch (with lock: in tick_once).  RLock is reentrant,
+    so inner per-register calls don't deadlock with the outer batch lock.
 """
 
 import logging
@@ -21,9 +27,6 @@ from device import DeviceModel
 from devices_spec import DEVICES, PCS_TO_BMS
 
 log = logging.getLogger(__name__)
-
-# pymodbus ModbusSequentialDataBlock internal offset (address 0 -> index 1)
-INTERNAL_OFFSET = 1
 
 # Internal float state to avoid quantization loss on low-resolution registers.
 # Without this, SOC (scale=1 = integer) would never change when delta < 0.5 per tick.
@@ -47,13 +50,13 @@ BMS_IR2_CAPACITY = 2
 # --- Low-level register helpers ---
 
 def _get_reg(block, addr):
-    """Read one uint16 register from a datablock."""
-    return block.getValues(addr + INTERNAL_OFFSET, 1)[0]
+    """Read one uint16 register from a datablock (0-based address)."""
+    return block.getValues(addr, 1)[0]
 
 
 def _set_reg(block, addr, value_u16):
-    """Write one uint16 register to a datablock."""
-    block.setValues(addr + INTERNAL_OFFSET, [value_u16])
+    """Write one uint16 register to a datablock (0-based address)."""
+    block.setValues(addr, [value_u16])
 
 
 # --- Tick logic ---
@@ -163,17 +166,19 @@ def _tick_loop(stores, interval, lock, stop_event):
         stop_event.wait(interval)
 
 
-def start_tick_loop(stores, interval=1.0):
+def start_tick_loop(stores, lock, interval=1.0):
     """
     Start tick loop in a daemon thread.
 
+    Args:
+        stores: {unit_id: {"hr": block, "ir": block}} from create_server_context.
+        lock:   shared threading.RLock from create_server_context.
+        interval: seconds between ticks (default 1.0).
+
     Returns:
-        (thread, lock, stop_event)
-        - lock: threading.Lock shared with tick; caller may use it
-          to guard its own register access if needed.
+        (thread, stop_event)
         - stop_event: set this to gracefully stop the tick loop.
     """
-    lock = threading.Lock()
     stop_event = threading.Event()
     t = threading.Thread(
         target=_tick_loop,
@@ -181,4 +186,4 @@ def start_tick_loop(stores, interval=1.0):
         daemon=True,
     )
     t.start()
-    return t, lock, stop_event
+    return t, stop_event
