@@ -1,14 +1,4 @@
 """
-FaultInjector: mô phỏng "mạng xấu" (network simulation)
-
-Phase 1: CHƯA DÙNG - chỉ giữ khung để mở rộng sau
-Phase 2: Implement fault injection cho testing mạng
-
-Các loại fault:
-- delay_ms: thêm độ trễ
-- chunk: cắt nhỏ response (fragmentation)  
-- drop_rate: rớt response ngẫu nhiên
-- close_rate: đóng kết nối ngẫu nhiên
 """
 
 import random
@@ -17,27 +7,25 @@ from typing import List
 
 
 class FaultInjector:
-    """Phase 1 implementation - chưa active"""
     def __init__(self):
-        # Tắt hết trong Phase 1
         self.enabled = False
         
     def inject_delay(self, min_ms: int, max_ms: int) -> None:
-        """Phase 2: Inject random delay"""
+    
         if not self.enabled:
             return
         # TODO: implement delay injection
         pass
         
     def should_drop_response(self, drop_rate: float = 0.0) -> bool:
-        """Phase 2: Random response dropping"""
+        """Random response dropping"""
         if not self.enabled:
             return False
         # TODO: implement response dropping
         return False
         
     def chunk_response(self, response: bytes, min_chunk: int = 1, max_chunk: int = 1) -> List[bytes]:
-        """Phase 2: Fragment response into chunks"""
+        """Fragment response into chunks"""
         if not self.enabled:
             return [response]
         # TODO: implement response chunking
