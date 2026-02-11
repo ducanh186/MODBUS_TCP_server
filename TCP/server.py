@@ -1,11 +1,7 @@
 import logging
 from pymodbus.server import StartTcpServer
-
 from modbus_tcp import create_server_context, create_device_identity
-from device import DeviceModel
-
-HOST = "127.0.0.1"
-PORT = 15020
+from devices_spec import HOST, PORT, DEVICES
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 
@@ -14,15 +10,11 @@ def run_server():
     context = create_server_context()
     identity = create_device_identity()
 
-    hr0 = context[1].getValues(3, DeviceModel.HR0_ADDRESS, 1)[0]
-    hr1 = context[1].getValues(3, DeviceModel.HR1_ADDRESS, 1)[0]
+    device_list = ", ".join(f"{name}(uid={spec['unit_id']})" for name, spec in DEVICES.items())
+    logging.info(f"Starting Modbus TCP Server on {HOST}:{PORT}")
+    logging.info(f"Devices: {device_list}")
 
-    logging.info(f"Starting PMS Modbus TCP Server at {HOST}:{PORT}")
-    logging.info("Device ID: 1")
-    logging.info(f"HR0 (demand_control_power): {DeviceModel.decode_power_kw(hr0)} kW")
-    logging.info(f"HR1 (active_power):         {DeviceModel.decode_power_kw(hr1)} kW")
-
-    StartTcpServer(context=context, identity=identity, address=(HOST, PORT))
+    StartTcpServer(context, identity=identity, address=(HOST, PORT))
 
 
 if __name__ == "__main__":
