@@ -1,0 +1,27 @@
+# Plant configuration for multi-port Modbus simulator
+# Each device runs on its own TCP port; multimeter uses RTU over COM.
+
+host: "127.0.0.1"
+tick_interval_s: 1.0
+loss_ratio: 0.01
+
+tcp_ports:
+  pms:  15020
+  pcs1: 15021
+  pcs2: 15022
+  bms1: 15024
+  bms2: 15025
+
+# PCS -> BMS pairing (by device name)
+pairing:
+  pcs1: bms1
+  pcs2: bms2
+
+# com0com virtual serial port pair
+# Simulator binds to server_port; external client connects to client_port.
+# Create pair with com0com first: e.g.  COM10 <-> COM11
+com0com:
+  server_port: "COM10"
+  client_port: "COM11"   # for documentation / external_client
+  slave_id: 10
+  baudrate: 9600
