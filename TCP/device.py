@@ -1,24 +1,16 @@
 """
+codec for Modbus TCP device model handling power and battery parameters.
 
-Holding Register (thanh ghi 16-bit đọc/ghi), 0-based:
-- HR0: demand_control_power (kW)  R/W
-- HR1: active_power (kW)          R 
-
-Encoding:
-- int16 + scale 0.1 kW (two's complement stored in uint16)
-- SOC (%) 
-- SOH (%)
-- Capacity (kWh)
 """
 class DeviceModel:
     HR0_ADDRESS = 0  # demand_control_power R/W
     HR1_ADDRESS = 1  # active_power R
 
     POWER_SCALE = 0.1  # 0.1 kW / LSB
-
+    # two's complement conversion
     @staticmethod #helper functions for int16 <-> uint16 conversion
     def _int16_to_u16(x: int) -> int:
-        return x & 0xFFFF   
+        return x & 0xFFFF    # fit
 
     @staticmethod
     def _u16_to_int16(x: int) -> int:
