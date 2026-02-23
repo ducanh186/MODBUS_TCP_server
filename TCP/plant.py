@@ -89,7 +89,7 @@ def _start_multimeter(com_port, slave_id, baudrate, host, pcs_ports, loss_ratio,
 class Plant:
     """Owns all device processes and manages lifecycle."""
 
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: Dict[str, Any], no_multimeter: bool = False):
         self.config = config
         self.host: str = config["host"]
         self.tick: float = config["tick_interval_s"]
@@ -97,6 +97,7 @@ class Plant:
         self.tcp_ports: Dict[str, int] = config["tcp_ports"]
         self.pairing: Dict[str, str] = config["pairing"]
         self.com0com: Dict[str, Any] = config.get("com0com", {})
+        self.no_multimeter: bool = no_multimeter
         self.processes: List[multiprocessing.Process] = []
 
     # -- helpers to derive port dicts --
@@ -166,8 +167,10 @@ class Plant:
         self.processes.append(p)
         log.info(f"Started PMS process (pid={p.pid}, port={pms_port})")
 
-        # 4) Multimeter RTU (optional — only if com0com section present)
-        if self.com0com and self.com0com.get("server_port"):
+        # 4) Multimeter RTU (optional — skipped by --no-multimeter flag or missing config)
+        if self.no_multimeter:
+            log.info("--no-multimeter flag set — skipping Multimeter RTU server")
+        elif self.com0com and self.com0com.get("server_port"):
             p = multiprocessing.Process(
                 target=_start_multimeter,
                 args=(
@@ -187,7 +190,7 @@ class Plant:
             log.info(f"Started Multimeter RTU process (pid={p.pid}, "
                      f"port={self.com0com['server_port']})")
         else:
-            log.warning("com0com not configured — skipping Multimeter RTU server")
+            log.warning("com0com.server_port not configured in plant.yaml — skipping Multimeter RTU server")
 
         log.info("All device processes started.")
 
@@ -228,6 +231,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Modbus Plant Simulator")
     parser.add_argument("--config", default="config/plant.yaml",
                         help="Path to plant.yaml config file")
+    parser.add_argument("--no-multimeter", action="store_true",
+                        help="Skip Multimeter RTU server (useful when com0com is not installed)")
     args = parser.parse_args()
 
     config_path = args.config
@@ -237,7 +242,7 @@ def main() -> None:
     log.info(f"Loading config from {config_path}")
     config = load_config(config_path)
 
-    plant = Plant(config)
+    plant = Plant(config, no_multimeter=args.no_multimeter)
     plant.start()
     plant.wait()
 
