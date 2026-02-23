@@ -24,6 +24,8 @@ from pymodbus.datastore import (
     ModbusSequentialDataBlock,
     ModbusServerContext,
 )
+from serial.tools import list_ports as _serial_list_ports
+from serial import SerialException
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tcp_servers"))
@@ -64,7 +66,7 @@ def _updater_loop(
             try:
                 client = ModbusTcpClient(host, port=pcs_port)
                 client.connect()
-                rr = client.read_input_registers(PCS_IR0_ACTIVE_POWER, 1, slave=1)
+                rr = client.read_input_registers(PCS_IR0_ACTIVE_POWER, count=1, device_id=1)
                 if not rr.isError():
                     total_pcs_kw += decode_power_kw(rr.registers[0])
                 client.close()
@@ -89,6 +91,19 @@ def run_multimeter_server(
     tick_interval_s: float = 1.0,
 ) -> None:
     """Start multimeter RTU server and updater thread."""
+
+    # Normalize COM port name (Windows: "COM10 " or "com10" → "COM10")
+    com_port = com_port.upper().strip()
+
+    # Check port existence before trying to bind — avoids noisy traceback
+    available = [p.device.upper().strip() for p in _serial_list_ports.comports()]
+    if com_port not in available:
+        log.warning(
+            f"COM port {com_port} not found in system "
+            f"(available: {available if available else 'none'}) "
+            f"— skipping Multimeter RTU server"
+        )
+        return
 
     lock = threading.RLock()
     ir_block = LockedDataBlock(lock, 10, {0: 0})
@@ -124,8 +139,25 @@ def run_multimeter_server(
             stopbits=1,
             timeout=1,
         )
+    except FileNotFoundError as exc:
+        # Port disappeared after the list_ports check (race) — treat as expected
+        log.warning(f"COM port {com_port} not found when opening: {exc} — Multimeter not started")
+        stop_event.set()
+    except SerialException as exc:
+        msg = str(exc).lower()
+        if "access is denied" in msg or "permissionerror" in msg or "permission" in msg:
+            # Port exists but another process holds it — operator error, not a code bug
+            log.error(
+                f"COM port {com_port} is busy or access denied: {exc} "
+                f"— close the other application and restart"
+            )
+        else:
+            # Other serial layer error (framing, hardware issue…) — keep traceback for debug
+            log.exception(f"Serial error on {com_port}")
+        stop_event.set()
     except Exception:
-        log.exception(f"Failed to start RTU server on {com_port}")
+        # Truly unexpected — keep full traceback
+        log.exception(f"Unexpected error starting RTU server on {com_port}")
         stop_event.set()
 
 
