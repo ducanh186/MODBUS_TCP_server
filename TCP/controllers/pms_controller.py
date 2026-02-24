@@ -85,10 +85,10 @@ def _tick(
         try:
             pcs_client = ModbusTcpClient(host, port=pcs_port)
             pcs_client.connect()
-            pcs_client.write_register(PCS_HR0_SETPOINT, setpoint_u16, slave=1)
+            pcs_client.write_register(PCS_HR0_SETPOINT, setpoint_u16, device_id=1)
 
             # 4) Read PCS IR0 active_power
-            rr = pcs_client.read_input_registers(PCS_IR0_ACTIVE_POWER, 1, slave=1)
+            rr = pcs_client.read_input_registers(PCS_IR0_ACTIVE_POWER, count=1, device_id=1)
             if not rr.isError():
                 pcs_active_kw = decode_power_kw(rr.registers[0])
                 total_active_kw += pcs_active_kw
@@ -103,7 +103,7 @@ def _tick(
             try:
                 bms_client = ModbusTcpClient(host, port=bms_port)
                 bms_client.connect()
-                rr = bms_client.read_input_registers(BMS_IR0_SOC, 3, slave=1)
+                rr = bms_client.read_input_registers(BMS_IR0_SOC, count=3, device_id=1)
                 if not rr.isError():
                     soc_sum += decode_soc(rr.registers[0])
                     soh_sum += decode_soh(rr.registers[1])
