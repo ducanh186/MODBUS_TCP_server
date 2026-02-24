@@ -54,7 +54,7 @@ def _tick(
     try:
         bms_client = ModbusTcpClient(paired_bms_host, port=paired_bms_port)
         bms_client.connect()
-        rr = bms_client.read_input_registers(BMS_IR0_SOC, 1, slave=1)
+        rr = bms_client.read_input_registers(BMS_IR0_SOC, count=1, device_id=1)
         if not rr.isError():
             soc = decode_soc(rr.registers[0])
         bms_client.close()
