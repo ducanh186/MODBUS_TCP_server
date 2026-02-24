@@ -41,7 +41,7 @@ def main() -> None:
 
     if args.read_hr:
         addr, count = args.read_hr
-        rr = client.read_holding_registers(addr, count, slave=args.slave)
+        rr = client.read_holding_registers(addr, count=count, device_id=args.slave)
         if rr.isError():
             print(f"Error: {rr}")
         else:
@@ -53,7 +53,7 @@ def main() -> None:
 
     if args.read_ir:
         addr, count = args.read_ir
-        rr = client.read_input_registers(addr, count, slave=args.slave)
+        rr = client.read_input_registers(addr, count=count, device_id=args.slave)
         if rr.isError():
             print(f"Error: {rr}")
         else:
@@ -65,7 +65,7 @@ def main() -> None:
 
     if args.write_hr:
         addr, value = args.write_hr
-        rr = client.write_register(addr, value & 0xFFFF, slave=args.slave)
+        rr = client.write_register(addr, value & 0xFFFF, device_id=args.slave)
         if rr.isError():
             print(f"Error: {rr}")
         else:
