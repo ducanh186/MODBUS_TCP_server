@@ -21,7 +21,7 @@ pairing:
 # Simulator binds to server_port; external client connects to client_port.
 # Create pair with com0com first: e.g.  COM10 <-> COM11
 com0com:
-  server_port: "COM10"
-  client_port: "COM11"   # for documentation / external_client
+  server_port: "COM6"
+  client_port: "COM5"    # for documentation / external_client
   slave_id: 10
   baudrate: 9600
