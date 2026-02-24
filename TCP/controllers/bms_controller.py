@@ -67,7 +67,7 @@ def _loop(
         try:
             pcs_client = ModbusTcpClient(paired_pcs_host, port=paired_pcs_port)
             pcs_client.connect()
-            rr = pcs_client.read_input_registers(PCS_IR0_ACTIVE_POWER, 1, slave=1)
+            rr = pcs_client.read_input_registers(PCS_IR0_ACTIVE_POWER, count=1, device_id=1)
             if not rr.isError():
                 active_power_kw = decode_power_kw(rr.registers[0])
             pcs_client.close()
