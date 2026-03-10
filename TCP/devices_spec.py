@@ -15,6 +15,7 @@ DEVICES = {
             1: {"name": "soc_avg", "scale": 1, "unit": "%", "init": 0},
             2: {"name": "soh_avg", "scale": 1, "unit": "%", "init": 0},
             3: {"name": "capacity_total", "scale": 0.1, "unit": "kWh", "init": 0.0},
+            4: {"name": "alarm", "scale": 1, "unit": "bitfield", "init": 0},
         },
     },
     "PCS1": {
@@ -47,6 +48,7 @@ DEVICES = {
             0: {"name": "soc", "scale": 1, "unit": "%", "init": 50},
             1: {"name": "soh", "scale": 1, "unit": "%", "init": 100},
             2: {"name": "capacity", "scale": 0.1, "unit": "kWh", "init": 100.0},
+            3: {"name": "alarm", "scale": 1, "unit": "bitfield", "init": 0},
         },
     },
     "BMS2": {
@@ -59,6 +61,7 @@ DEVICES = {
             0: {"name": "soc", "scale": 1, "unit": "%", "init": 50},
             1: {"name": "soh", "scale": 1, "unit": "%", "init": 100},
             2: {"name": "capacity", "scale": 0.1, "unit": "kWh", "init": 100.0},
+            3: {"name": "alarm", "scale": 1, "unit": "bitfield", "init": 0},
         },
     },
 }
