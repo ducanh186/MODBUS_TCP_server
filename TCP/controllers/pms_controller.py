@@ -49,6 +49,9 @@ PCS_IR0_ACTIVE_POWER = 0
 BMS_IR0_SOC = 0
 BMS_IR1_SOH = 1
 BMS_IR2_CAPACITY = 2
+BMS_IR3_ALARM = 3
+
+IR4_ALARM = 4
 
 
 def _tick(
@@ -79,6 +82,7 @@ def _tick(
     soh_sum = 0.0
     cap_sum_kwh = 0.0
     bms_count = 0
+    bms_alarms: Dict[str, int] = {}  # bms_name -> alarm bitfield
 
     for pcs_name, pcs_port in pcs_ports.items():
         # 3) Write PCS HR0 setpoint via Modbus TCP
@@ -103,23 +107,31 @@ def _tick(
             try:
                 bms_client = ModbusTcpClient(host, port=bms_port)
                 bms_client.connect()
-                rr = bms_client.read_input_registers(BMS_IR0_SOC, count=3, device_id=1)
+                rr = bms_client.read_input_registers(BMS_IR0_SOC, count=4, device_id=1)
                 if not rr.isError():
                     soc_sum += decode_soc(rr.registers[0])
                     soh_sum += decode_soh(rr.registers[1])
                     cap_sum_kwh += decode_capacity_kwh(rr.registers[2])
+                    bms_alarms[bms_name] = rr.registers[3]
                     bms_count += 1
                 bms_client.close()
             except Exception:
                 log.exception(f"PMS: error communicating with {bms_name} on port {bms_port}")
 
-    # 6) Write aggregates into PMS IR0..IR3
+    # 6) Write aggregates into PMS IR0..IR4
     with lock:
         stores["ir"].setValues(IR0_TOTAL_POWER, [encode_power_kw(total_active_kw)])
         if bms_count > 0:
             stores["ir"].setValues(IR1_SOC_AVG, [encode_soc(soc_sum / bms_count)])
             stores["ir"].setValues(IR2_SOH_AVG, [encode_soh(soh_sum / bms_count)])
         stores["ir"].setValues(IR3_CAP_TOTAL, [encode_capacity_kwh(cap_sum_kwh)])
+
+        # Aggregate BMS alarms → PMS IR4
+        # BMS1 bits [3:0] → IR4 bits [3:0], BMS2 bits [3:0] → IR4 bits [11:8]
+        bms1_alarm = bms_alarms.get("BMS1", 0) & 0x000F
+        bms2_alarm = bms_alarms.get("BMS2", 0) & 0x000F
+        pms_alarm = bms1_alarm | (bms2_alarm << 8)
+        stores["ir"].setValues(IR4_ALARM, [pms_alarm])
 
 
 def _loop(
