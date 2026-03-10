@@ -39,6 +39,27 @@ log = logging.getLogger("bms_controller")
 PCS_IR0_ACTIVE_POWER = 0
 BMS_IR0_SOC = 0
 BMS_IR2_CAPACITY = 2
+BMS_IR3_ALARM = 3
+
+
+def _compute_alarm(soc: float) -> int:
+    """Compute BMS alarm bitfield from SOC value.
+
+    Bit 0: SOC >= 100%   (BMS0000)
+    Bit 1: 90 <= SOC < 100 (BMS0001)
+    Bit 2: 0 < SOC <= 10  (BMS0002)
+    Bit 3: SOC <= 0%     (BMS0003)
+    """
+    alarm = 0
+    if soc >= 100.0:
+        alarm |= 1 << 0
+    elif soc >= 90.0:
+        alarm |= 1 << 1
+    if soc <= 0.0:
+        alarm |= 1 << 3
+    elif soc <= 10.0:
+        alarm |= 1 << 2
+    return alarm
 
 
 def _loop(
@@ -79,9 +100,11 @@ def _loop(
             delta_soc = -(active_power_kw * dt_s) / (capacity_kwh * 3600) * 100.0
             soc_float = max(0.0, min(100.0, soc_float + delta_soc))
 
-        # 3) Write IR0
+        # 3) Write IR0 + IR3
+        alarm = _compute_alarm(soc_float)
         with lock:
             stores["ir"].setValues(BMS_IR0_SOC, [encode_soc(soc_float)])
+            stores["ir"].setValues(BMS_IR3_ALARM, [alarm])
 
         stop_event.wait(tick_interval_s)
 
