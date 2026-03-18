@@ -128,6 +128,16 @@ def decode_capacity_kwh(reg_u16: int) -> float:
     return (reg_u16 & 0xFFFF) * 0.1
 
 
+def encode_frequency_hz(hz: float) -> int:
+    """Frequency Hz → uint16, scale 0.001 Hz (50.000 Hz → 50000)."""
+    return int(round(max(0.0, hz) / 0.001)) & 0xFFFF
+
+
+def decode_frequency_hz(reg_u16: int) -> float:
+    """uint16 → frequency Hz (scale 0.001)."""
+    return (reg_u16 & 0xFFFF) * 0.001
+
+
 # ---------------------------------------------------------------------------
 # Factory
 # ---------------------------------------------------------------------------
