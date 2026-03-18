@@ -11,6 +11,7 @@ tcp_ports:
   pcs2: 15022
   bms1: 15024
   bms2: 15025
+  transducer: 15026
 
 # PCS -> BMS pairing (by device name)
 pairing:
