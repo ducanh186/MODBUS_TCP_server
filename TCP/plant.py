@@ -72,6 +72,16 @@ def _start_bms(device_name, host, port, paired_pcs_host, paired_pcs_port, tick_i
     run_bms_server(device_name, host, port, paired_pcs_host, paired_pcs_port, tick_interval_s)
 
 
+def _start_transducer(device_name, host, port, tick_interval_s):
+    """Entry for Transducer subprocess."""
+    base = os.path.dirname(os.path.abspath(__file__))
+    sys.path.insert(0, base)
+    sys.path.insert(0, os.path.join(base, "tcp_servers"))
+
+    from tcp_servers.transducer_server import run_transducer_server
+    run_transducer_server(device_name, host, port, tick_interval_s)
+
+
 def _start_multimeter(com_port, slave_id, baudrate, host, pcs_ports, loss_ratio, tick_interval_s):
     """Entry for Multimeter RTU subprocess."""
     base = os.path.dirname(os.path.abspath(__file__))
@@ -132,6 +142,19 @@ class Plant:
             p.start()
             self.processes.append(p)
             log.info(f"Started {bms_name.upper()} process (pid={p.pid}, port={bms_port})")
+
+        # 1b) Transducer (frequency sensor — always runs)
+        transducer_port = self.tcp_ports.get("transducer")
+        if transducer_port:
+            p = multiprocessing.Process(
+                target=_start_transducer,
+                args=("TRANSDUCER", self.host, transducer_port, 0.1),
+                name="proc-transducer",
+                daemon=True,
+            )
+            p.start()
+            self.processes.append(p)
+            log.info(f"Started TRANSDUCER process (pid={p.pid}, port={transducer_port})")
 
         # Small delay so BMS servers bind before PCS tries to connect
         time.sleep(1.0)
