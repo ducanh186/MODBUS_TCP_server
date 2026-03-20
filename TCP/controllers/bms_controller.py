@@ -49,15 +49,18 @@ def _compute_alarm(soc: float) -> int:
     Bit 1: 90 <= SOC < 100 (BMS0001)
     Bit 2: 0 < SOC <= 10  (BMS0002)
     Bit 3: SOC <= 0%     (BMS0003)
+
+    Uses rounded SOC to match the register encoding (scale=1, round).
     """
+    soc_r = round(soc)
     alarm = 0
-    if soc >= 100.0:
+    if soc_r >= 100:
         alarm |= 1 << 0
-    elif soc >= 90.0:
+    elif soc_r >= 90:
         alarm |= 1 << 1
-    if soc <= 0.0:
+    if soc_r <= 0:
         alarm |= 1 << 3
-    elif soc <= 10.0:
+    elif soc_r <= 10:
         alarm |= 1 << 2
     return alarm
 
