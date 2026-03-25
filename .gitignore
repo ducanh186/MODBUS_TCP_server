@@ -84,6 +84,9 @@ logs/
 temp/
 tmp/
 
+# Temp test files
+TCP/_test_*.py
+
 # Configuration files with sensitive data
 config.ini
 settings.ini
