@@ -2,11 +2,13 @@
 Shared helpers for building Modbus TCP server contexts and locked datastores.
 
 Provides:
-- LockedDataBlock:         Thread-safe 0-based ModbusSequentialDataBlock.
-- RejectAllDataBlock:      Returns ILLEGAL_ADDRESS for unsupported function codes.
-- ZeroBasedDeviceContext:  Cancels pymodbus 3.x implicit +1 on address.
-- build_tcp_server_context: Factory to build a single-device server context.
-- encode_init:             Convert a float init value to uint16 via scale.
+- LockedDataBlock:              Thread-safe 0-based ModbusSequentialDataBlock.
+- MultiRangeDataBlock:          Thread-safe multi-range DataBlock for Huawei addresses.
+- RejectAllDataBlock:           Returns ILLEGAL_ADDRESS for unsupported function codes.
+- ZeroBasedDeviceContext:       Cancels pymodbus 3.x implicit +1 on address.
+- build_tcp_server_context:     Factory for single-device 0-based context.
+- build_multirange_server_context: Factory for Huawei-style multi-range context.
+- encode_init:                  Convert a float init value to uint16 via scale.
 """
 
 from __future__ import annotations
@@ -55,6 +57,70 @@ class RejectAllDataBlock(ModbusSequentialDataBlock):
 
     def setValues(self, address: int, values: List[int]):
         return ExcCodes.ILLEGAL_ADDRESS
+
+
+class MultiRangeDataBlock(ModbusSequentialDataBlock):
+    """DataBlock supporting multiple non-contiguous address ranges.
+
+    Each range is a contiguous island of registers backed by a small list.
+    Reads/writes that fall entirely within one range succeed.
+    Addresses outside any range or crossing range boundaries → ILLEGAL_ADDRESS.
+
+    Example:
+        ranges = [
+            (30000, 85),                          # identity+rating, 85 regs
+            (32000, 91),                          # status+power,    91 regs
+            (32000, 91, {32080: 0, 32085: 0}),   # with init values
+        ]
+    """
+
+    def __init__(self, lock: threading.RLock,
+                 ranges: List[tuple]) -> None:
+        super().__init__(0, [0])  # dummy init for parent
+        self._lock = lock
+        self._ranges: Dict[int, Dict] = {}  # {start: {"size": n, "values": [...]}}
+
+        for r in ranges:
+            if len(r) == 3:
+                start, size, init_vals = r
+            else:
+                start, size = r
+                init_vals = None
+            values = [0] * size
+            if init_vals:
+                for addr, val in init_vals.items():
+                    offset = addr - start
+                    if 0 <= offset < size:
+                        values[offset] = val
+            self._ranges[start] = {"size": size, "values": values}
+
+    def _find_range(self, address: int, count: int = 1):
+        """Return (start, range_dict) if [address, address+count) is within one range."""
+        for start, rng in self._ranges.items():
+            if start <= address and address + count <= start + rng["size"]:
+                return start, rng
+        return None, None
+
+    def validate(self, address: int, count: int = 1) -> bool:
+        start, _ = self._find_range(address, count)
+        return start is not None
+
+    def getValues(self, address: int, count: int = 1):
+        with self._lock:
+            start, rng = self._find_range(address, count)
+            if start is None:
+                return ExcCodes.ILLEGAL_ADDRESS
+            offset = address - start
+            return list(rng["values"][offset: offset + count])
+
+    def setValues(self, address: int, values: List[int]):
+        with self._lock:
+            count = len(values)
+            start, rng = self._find_range(address, count)
+            if start is None:
+                return ExcCodes.ILLEGAL_ADDRESS
+            offset = address - start
+            rng["values"][offset: offset + count] = values
 
 
 # ---------------------------------------------------------------------------
@@ -160,6 +226,45 @@ def build_tcp_server_context(
 
     hr = LockedDataBlock(lock, hr_size, hr_init) if hr_size > 0 else RejectAllDataBlock(0, [0])
     ir = LockedDataBlock(lock, ir_size, ir_init) if ir_size > 0 else RejectAllDataBlock(0, [0])
+
+    device_ctx = ZeroBasedDeviceContext(
+        di=RejectAllDataBlock(0, [0]),
+        co=RejectAllDataBlock(0, [0]),
+        hr=hr,
+        ir=ir,
+    )
+
+    server_ctx = ModbusServerContext(devices={slave_id: device_ctx}, single=False)
+    stores = {"hr": hr, "ir": ir}
+    return server_ctx, stores, lock
+
+
+def build_multirange_server_context(
+    *,
+    hr_ranges: Optional[List[tuple]] = None,
+    ir_ranges: Optional[List[tuple]] = None,
+    slave_id: int = 1,
+) -> Tuple[ModbusServerContext, Dict[str, MultiRangeDataBlock], threading.RLock]:
+    """Build a server context using MultiRangeDataBlock for Huawei-style addresses.
+
+    Args:
+        hr_ranges: list of (start, size) or (start, size, {addr: val}) for holding registers
+        ir_ranges: same for input registers
+        slave_id:  Modbus unit id (default 1)
+
+    Returns:
+        (server_context, {"hr": block, "ir": block}, lock)
+
+    Example:
+        ctx, stores, lock = build_multirange_server_context(
+            hr_ranges=[(40039, 163)],
+            ir_ranges=[(30000, 85), (32000, 91)],
+        )
+    """
+    lock = threading.RLock()
+
+    hr = MultiRangeDataBlock(lock, hr_ranges) if hr_ranges else RejectAllDataBlock(0, [0])
+    ir = MultiRangeDataBlock(lock, ir_ranges) if ir_ranges else RejectAllDataBlock(0, [0])
 
     device_ctx = ZeroBasedDeviceContext(
         di=RejectAllDataBlock(0, [0]),
