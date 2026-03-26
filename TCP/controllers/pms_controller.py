@@ -4,10 +4,10 @@ PMS controller — runs inside the PMS server process.
 Every tick:
 1. Read PMS HR0 (demand_control_power) from own datastore.
 2. Split demand equally across PCS devices.
-3. Write each PCS HR0 (power_setpoint) via Modbus TCP.
-4. Read each PCS IR0 (active_power) via Modbus TCP.
+3. Write each PCS HR 40043-40044 (fixed_active_p I32 gain=1000) via Modbus TCP.
+4. Read each PCS IR 32080-32081 (active_power I32 gain=1000) via Modbus TCP.
 5. Read each BMS IR0/1/2 (soc/soh/capacity) via Modbus TCP.
-6. Compute aggregates and write PMS IR0..IR3 in own datastore.
+6. Compute aggregates and write PMS IR0..IR4 in own datastore.
 """
 
 from __future__ import annotations
@@ -33,25 +33,28 @@ from tcp_servers.tcp_context import (
     encode_soh,
     encode_capacity_kwh,
 )
+from register_codec import encode_i32, decode_i32
 
 log = logging.getLogger("pms_controller")
 
-# Register addresses (0-based)
+# PMS own registers (0-based, PMS not Huawei-ized yet)
 HR0_DEMAND = 0
 IR0_TOTAL_POWER = 0
 IR1_SOC_AVG = 1
 IR2_SOH_AVG = 2
 IR3_CAP_TOTAL = 3
+IR4_ALARM = 4
 
-PCS_HR0_SETPOINT = 0
-PCS_IR0_ACTIVE_POWER = 0
+# PCS Huawei addresses (written/read via Modbus TCP)
+PCS_HR_FIXED_ACTIVE_P = 40043   # I32, gain=1000, kW — write setpoint
+PCS_IR_ACTIVE_POWER   = 32080   # I32, gain=1000, kW — read output
+PCS_GAIN_POWER        = 1000
 
+# BMS registers (still 0-based)
 BMS_IR0_SOC = 0
 BMS_IR1_SOH = 1
 BMS_IR2_CAPACITY = 2
 BMS_IR3_ALARM = 3
-
-IR4_ALARM = 4
 
 
 def _tick(
@@ -75,7 +78,6 @@ def _tick(
 
     # 2) Split demand equally
     setpoint_kw = demand_kw / num_pcs
-    setpoint_u16 = encode_power_kw(setpoint_kw)
 
     total_active_kw = 0.0
     soc_sum = 0.0
@@ -85,16 +87,20 @@ def _tick(
     bms_alarms: Dict[str, int] = {}  # bms_name -> alarm bitfield
 
     for pcs_name, pcs_port in pcs_ports.items():
-        # 3) Write PCS HR0 setpoint via Modbus TCP
+        # 3) Write PCS HR 40043-40044 (I32 gain=1000) via Modbus TCP
         try:
             pcs_client = ModbusTcpClient(host, port=pcs_port)
             pcs_client.connect()
-            pcs_client.write_register(PCS_HR0_SETPOINT, setpoint_u16, device_id=1)
+            pcs_client.write_registers(
+                PCS_HR_FIXED_ACTIVE_P,
+                encode_i32(setpoint_kw, gain=PCS_GAIN_POWER),
+                device_id=0,
+            )
 
-            # 4) Read PCS IR0 active_power
-            rr = pcs_client.read_input_registers(PCS_IR0_ACTIVE_POWER, count=1, device_id=1)
+            # 4) Read PCS IR 32080-32081 (active_power I32 gain=1000)
+            rr = pcs_client.read_input_registers(PCS_IR_ACTIVE_POWER, count=2, device_id=0)
             if not rr.isError():
-                pcs_active_kw = decode_power_kw(rr.registers[0])
+                pcs_active_kw = decode_i32(list(rr.registers), gain=PCS_GAIN_POWER)
                 total_active_kw += pcs_active_kw
             pcs_client.close()
         except Exception:
@@ -107,7 +113,7 @@ def _tick(
             try:
                 bms_client = ModbusTcpClient(host, port=bms_port)
                 bms_client.connect()
-                rr = bms_client.read_input_registers(BMS_IR0_SOC, count=4, device_id=1)
+                rr = bms_client.read_input_registers(BMS_IR0_SOC, count=4, device_id=0)
                 if not rr.isError():
                     soc_sum += decode_soc(rr.registers[0])
                     soh_sum += decode_soh(rr.registers[1])
