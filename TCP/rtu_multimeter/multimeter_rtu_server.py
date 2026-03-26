@@ -24,8 +24,8 @@ from tcp_servers.tcp_context import (
     RejectAllDataBlock,
     ZeroBasedDeviceContext,
     encode_power_kw,
-    decode_power_kw,
 )
+from register_codec import decode_i32
 
 logging.basicConfig(
     level=logging.INFO,
@@ -34,7 +34,8 @@ logging.basicConfig(
 log = logging.getLogger("multimeter")
 
 IR0_ACTIVE_POWER = 0
-PCS_IR0_ACTIVE_POWER = 0
+PCS_IR_ACTIVE_POWER = 32080   # Huawei PCS2000HA: I32, gain=1000
+PCS_GAIN_POWER = 1000
 
 SERIAL_PORT = os.getenv("MM_RTU_PORT", "COM6")
 DEVICE_ID = int(os.getenv("MM_RTU_DEVICE_ID", "10"))
@@ -66,10 +67,10 @@ def _updater_loop(
                 client = ModbusTcpClient(host, port=pcs_port)
                 client.connect()
                 rr = client.read_input_registers(
-                    PCS_IR0_ACTIVE_POWER, count=1, device_id=1,
+                    PCS_IR_ACTIVE_POWER, count=2, device_id=0,
                 )
                 if not rr.isError():
-                    pcs_kw = decode_power_kw(rr.registers[0])
+                    pcs_kw = decode_i32(list(rr.registers), gain=PCS_GAIN_POWER)
                     last_good[pcs_name] = pcs_kw
                     comm_status[pcs_name] = "ok"
                     error_counts[pcs_name] = 0
