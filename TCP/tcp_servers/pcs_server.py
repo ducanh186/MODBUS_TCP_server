@@ -49,6 +49,8 @@ def run_pcs_server(
     paired_bms_host: str,
     paired_bms_port: int,
     tick_interval_s: float,
+    transducer_host: str = "",
+    transducer_port: int = 0,
 ) -> None:
     """Start a PCS TCP server and its controller thread."""
 
@@ -75,6 +77,8 @@ def run_pcs_server(
         lock=lock,
         paired_bms_host=paired_bms_host,
         paired_bms_port=paired_bms_port,
+        transducer_host=transducer_host,
+        transducer_port=transducer_port,
         tick_interval_s=tick_interval_s,
     )
     log.info(f"{device_name} controller thread started (tick={tick_interval_s}s)")
@@ -91,4 +95,5 @@ if __name__ == "__main__":
         host="127.0.0.1", port=15021,
         paired_bms_host="127.0.0.1", paired_bms_port=15024,
         tick_interval_s=1.0,
+        transducer_host="127.0.0.1", transducer_port=15026,
     )

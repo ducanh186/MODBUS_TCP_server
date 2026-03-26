@@ -52,14 +52,15 @@ def _start_pms(host, port, pcs_ports, bms_ports, pairing, tick_interval_s):
     run_pms_server(host, port, pcs_ports, bms_ports, pairing, tick_interval_s)
 
 
-def _start_pcs(device_name, host, port, paired_bms_host, paired_bms_port, tick_interval_s):
+def _start_pcs(device_name, host, port, paired_bms_host, paired_bms_port, tick_interval_s, transducer_host, transducer_port):
     """Entry for PCS subprocess."""
     base = os.path.dirname(os.path.abspath(__file__))
     sys.path.insert(0, base)
     sys.path.insert(0, os.path.join(base, "tcp_servers"))
 
     from tcp_servers.pcs_server import run_pcs_server
-    run_pcs_server(device_name, host, port, paired_bms_host, paired_bms_port, tick_interval_s)
+    run_pcs_server(device_name, host, port, paired_bms_host, paired_bms_port, tick_interval_s,
+                   transducer_host=transducer_host, transducer_port=transducer_port)
 
 
 def _start_bms(device_name, host, port, paired_pcs_host, paired_pcs_port, tick_interval_s):
@@ -164,10 +165,15 @@ class Plant:
             paired_bms = self.pairing[pcs_name]
             paired_bms_port = self.tcp_ports[paired_bms]
 
+            # Pass transducer connection info so PCS can read grid frequency
+            t_host = self.host if transducer_port else ""
+            t_port = transducer_port or 0
+
             p = multiprocessing.Process(
                 target=_start_pcs,
                 args=(pcs_name.upper(), self.host, pcs_port,
-                      self.host, paired_bms_port, self.tick),
+                      self.host, paired_bms_port, self.tick,
+                      t_host, t_port),
                 name=f"proc-{pcs_name}",
                 daemon=True,
             )
