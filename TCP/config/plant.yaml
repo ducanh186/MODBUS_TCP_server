@@ -12,6 +12,7 @@ tcp_ports:
   bms1: 15024
   bms2: 15025
   transducer: 15026
+  suppression_logger: 15027
 
 # PCS -> BMS pairing (by device name)
 pairing:

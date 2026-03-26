@@ -41,7 +41,8 @@ log = logging.getLogger("plant")
 # Process target wrappers (must be top-level for pickling on Windows)
 # ---------------------------------------------------------------------------
 
-def _start_pms(host, port, pcs_ports, bms_ports, pairing, tick_interval_s):
+def _start_pms(host, port, pcs_ports, bms_ports, pairing, tick_interval_s,
+               suppression_host="", suppression_port=0):
     """Entry for PMS subprocess."""
     # Re-add paths in subprocess
     base = os.path.dirname(os.path.abspath(__file__))
@@ -49,7 +50,8 @@ def _start_pms(host, port, pcs_ports, bms_ports, pairing, tick_interval_s):
     sys.path.insert(0, os.path.join(base, "tcp_servers"))
 
     from tcp_servers.pms_server import run_pms_server
-    run_pms_server(host, port, pcs_ports, bms_ports, pairing, tick_interval_s)
+    run_pms_server(host, port, pcs_ports, bms_ports, pairing, tick_interval_s,
+                   suppression_host=suppression_host, suppression_port=suppression_port)
 
 
 def _start_pcs(device_name, host, port, paired_bms_host, paired_bms_port, tick_interval_s, transducer_host, transducer_port):
@@ -81,6 +83,16 @@ def _start_transducer(device_name, host, port, tick_interval_s):
 
     from tcp_servers.transducer_server import run_transducer_server
     run_transducer_server(device_name, host, port, tick_interval_s)
+
+
+def _start_suppression_logger(device_name, host, port):
+    """Entry for Suppression Logger subprocess."""
+    base = os.path.dirname(os.path.abspath(__file__))
+    sys.path.insert(0, base)
+    sys.path.insert(0, os.path.join(base, "tcp_servers"))
+
+    from tcp_servers.suppression_server import run_suppression_server
+    run_suppression_server(device_name, host, port)
 
 
 def _start_multimeter(com_port, slave_id, baudrate, host, pcs_ports, loss_ratio, tick_interval_s):
@@ -183,12 +195,28 @@ class Plant:
 
         time.sleep(1.0)
 
+        # 2b) Suppression Logger (no controller, pure register store)
+        supp_port = self.tcp_ports.get("suppression_logger")
+        supp_host = ""
+        if supp_port:
+            p = multiprocessing.Process(
+                target=_start_suppression_logger,
+                args=("SUPPRESSION", self.host, supp_port),
+                name="proc-suppression",
+                daemon=True,
+            )
+            p.start()
+            self.processes.append(p)
+            supp_host = self.host
+            log.info(f"Started SUPPRESSION process (pid={p.pid}, port={supp_port})")
+
         # 3) PMS server
         pms_port = self.tcp_ports["pms"]
         p = multiprocessing.Process(
             target=_start_pms,
             args=(self.host, pms_port, self.pcs_ports, self.bms_ports,
                   self.pairing, self.tick),
+            kwargs={"suppression_host": supp_host, "suppression_port": supp_port or 0},
             name="proc-pms",
             daemon=True,
         )

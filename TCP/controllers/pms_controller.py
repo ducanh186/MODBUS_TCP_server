@@ -64,6 +64,8 @@ def _tick(
     pcs_ports: Dict[str, int],
     bms_ports: Dict[str, int],
     pairing: Dict[str, str],
+    suppression_host: str = "",
+    suppression_port: int = 0,
 ) -> None:
     """One tick of the PMS controller."""
 
@@ -75,6 +77,26 @@ def _tick(
     with lock:
         demand_u16 = stores["hr"].getValues(HR0_DEMAND, 1)[0]
     demand_kw = decode_power_kw(demand_u16)
+
+    # 1b) Read suppression_percent from Suppression Logger HR0
+    supp_pct = 100
+    if suppression_host and suppression_port:
+        try:
+            supp_client = ModbusTcpClient(suppression_host, port=suppression_port)
+            supp_client.connect()
+            rr = supp_client.read_holding_registers(0, count=1, device_id=0)
+            if not rr.isError():
+                raw = rr.registers[0]
+                supp_pct = max(0, min(100, raw))
+            supp_client.close()
+        except Exception:
+            log.warning("PMS: cannot read suppression logger — using 100%")
+
+    # Apply suppression to discharge only (+kW)
+    if demand_kw > 0 and supp_pct < 100:
+        original_kw = demand_kw
+        demand_kw = demand_kw * supp_pct / 100.0
+        log.info(f"Suppression {supp_pct}%: demand {original_kw:.1f} -> {demand_kw:.1f} kW")
 
     # 2) Split demand equally
     setpoint_kw = demand_kw / num_pcs
@@ -143,11 +165,13 @@ def _tick(
 def _loop(
     stores, lock, host, pcs_ports, bms_ports, pairing,
     tick_interval_s, stop_event,
+    suppression_host, suppression_port,
 ):
     log.info("PMS controller loop started")
     while not stop_event.is_set():
         try:
-            _tick(stores, lock, host, pcs_ports, bms_ports, pairing)
+            _tick(stores, lock, host, pcs_ports, bms_ports, pairing,
+                  suppression_host, suppression_port)
         except Exception:
             log.exception("PMS controller tick error")
         stop_event.wait(tick_interval_s)
@@ -162,12 +186,15 @@ def start_pms_controller(
     bms_ports: Dict[str, int],
     pairing: Dict[str, str],
     tick_interval_s: float,
+    suppression_host: str = "",
+    suppression_port: int = 0,
 ) -> Tuple[threading.Thread, threading.Event]:
     stop_event = threading.Event()
     t = threading.Thread(
         target=_loop,
         args=(stores, lock, host, pcs_ports, bms_ports, pairing,
-              tick_interval_s, stop_event),
+              tick_interval_s, stop_event,
+              suppression_host, suppression_port),
         daemon=True,
     )
     t.start()

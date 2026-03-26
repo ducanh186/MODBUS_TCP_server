@@ -44,6 +44,9 @@ def run_pms_server(
     bms_ports: dict[str, int],
     pairing: dict[str, str],
     tick_interval_s: float,
+    *,
+    suppression_host: str = "",
+    suppression_port: int = 0,
 ) -> None:
     """Start the PMS TCP server and its controller thread."""
 
@@ -72,6 +75,8 @@ def run_pms_server(
         bms_ports=bms_ports,
         pairing=pairing,
         tick_interval_s=tick_interval_s,
+        suppression_host=suppression_host,
+        suppression_port=suppression_port,
     )
     log.info(f"PMS controller thread started (tick={tick_interval_s}s)")
 
