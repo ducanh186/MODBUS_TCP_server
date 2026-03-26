@@ -2,12 +2,16 @@
 BMS controller — runs inside each BMS server process.
 
 Every tick:
-1. Read paired PCS IR0 (active_power) via Modbus TCP.
-2. Read own capacity from IR2 (static for now).
-3. Update float SOC accumulator:
+1. Read paired PCS IR 32080-32081 (active_power, I32, gain=1000) via Modbus TCP.
+2. Update float SOC accumulator:
      soc_float += -(active_power_kw * dt_s) / (capacity_kwh * 3600) * 100
    Clamp [0, 100].
-4. Write IR0 (SOC encoded uint16) to own datastore.
+3. Write own Huawei registers:
+   - IR 30035 (container_soc, U16, gain=1)
+   - IR 30105 (bcu1_soc, U16, gain=1)
+   - IR 30107-30108 (bcu1_chg_dis_p, I32, gain=1000)
+   - IR 30056-30057 (chg_dis_power, I32, gain=10)
+   - IR 39014 (tele_alarm_1, SOC-based alarm bits)
 
 Sign convention:
   active_power > 0 => discharge => SOC decreases
@@ -27,11 +31,7 @@ import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tcp_servers"))
 
-from tcp_servers.tcp_context import (
-    decode_capacity_kwh,
-    encode_soc,
-)
-from register_codec import decode_i32
+from register_codec import encode_i32, encode_u16, decode_i32
 
 log = logging.getLogger("bms_controller")
 
@@ -39,10 +39,15 @@ log = logging.getLogger("bms_controller")
 PCS_IR_ACTIVE_POWER = 32080   # I32, gain=1000, kW
 PCS_GAIN_POWER      = 1000
 
-# BMS own registers (0-based, BMS not Huawei-ized yet)
-BMS_IR0_SOC = 0
-BMS_IR2_CAPACITY = 2
-BMS_IR3_ALARM = 3
+# BMS own Huawei addresses (written to own datastore)
+from specs.bms_registers import (
+    ADDR_CONTAINER_SOC,
+    ADDR_CHG_DIS_POWER,
+    ADDR_BCU1_SOC,
+    ADDR_BCU1_SOH,
+    ADDR_BCU1_CHG_DIS_P,
+    ADDR_TELE_ALARM_1,
+)
 
 
 def _compute_alarm(soc: float) -> int:
@@ -52,8 +57,6 @@ def _compute_alarm(soc: float) -> int:
     Bit 1: 90 <= SOC < 100 (BMS0001)
     Bit 2: 0 < SOC <= 10  (BMS0002)
     Bit 3: SOC <= 0%     (BMS0003)
-
-    Uses rounded SOC to match the register encoding (scale=1, round).
     """
     soc_r = round(soc)
     alarm = 0
@@ -106,11 +109,24 @@ def _loop(
             delta_soc = -(active_power_kw * dt_s) / (capacity_kwh * 3600) * 100.0
             soc_float = max(0.0, min(100.0, soc_float + delta_soc))
 
-        # 3) Write IR0 + IR3
+        # 3) Write Huawei registers
         alarm = _compute_alarm(soc_float)
+        soc_u16 = encode_u16(round(soc_float))[0]  # U16, gain=1
+
         with lock:
-            stores["ir"].setValues(BMS_IR0_SOC, [encode_soc(soc_float)])
-            stores["ir"].setValues(BMS_IR3_ALARM, [alarm])
+            ir = stores["ir"]
+            # Container SOC (30035)
+            ir.setValues(ADDR_CONTAINER_SOC, [soc_u16])
+            # BCU-1 SOC (30105) + SOH (30106)
+            ir.setValues(ADDR_BCU1_SOC, [soc_u16])
+            # BCU-1 charge/discharge power (30107-30108, I32, gain=1000)
+            ir.setValues(ADDR_BCU1_CHG_DIS_P, encode_i32(active_power_kw, gain=1000))
+            # Container charge/discharge power (30056-30057, I32, gain=10)
+            ir.setValues(ADDR_CHG_DIS_POWER, encode_i32(active_power_kw, gain=10))
+            # Subsystem alarm (39014)
+            ir.setValues(ADDR_TELE_ALARM_1, [alarm])
+
+        stop_event.wait(tick_interval_s)
 
         stop_event.wait(tick_interval_s)
 

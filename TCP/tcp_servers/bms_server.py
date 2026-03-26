@@ -1,11 +1,13 @@
 """
 BMS Modbus TCP server process (parameterised by device name).
 
-Exposes:
-  IR0 (R): soc      (%,   scale=1,   uint16) — updated by BMS controller
-  IR1 (R): soh      (%,   scale=1,   uint16) — static 100
-  IR2 (R): capacity (kWh, scale=0.1, uint16) — static 100.0
+Address layout (Huawei LUNA2000C ESS):
+  IR  30000-30065  Container status + env + SOC + energy + power + capacity
+  IR  30101-30108  BCU-1 basic (SOC, SOH, charge/discharge power)
+  IR  30118-30119  Container alarms
+  IR  39014-39017  Subsystem telealarm (SOC-based alarms in simulator)
 
+No Holding Registers — BMS is read-only.
 Runs the BMS controller loop in a background thread within this process.
 """
 
@@ -20,11 +22,17 @@ from pymodbus.server import StartTcpServer
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from tcp_context import (
-    build_tcp_server_context,
-    encode_soc,
-    encode_soh,
-    encode_capacity_kwh,
+from tcp_context import build_multirange_server_context
+from specs.bms_registers import (
+    CONTAINER_RANGE_START,
+    CONTAINER_RANGE_SIZE,
+    BCU1_RANGE_START,
+    BCU1_RANGE_SIZE,
+    CONTAINER_ALARM_RANGE_START,
+    CONTAINER_ALARM_RANGE_SIZE,
+    SUBSYSTEM_ALARM_RANGE_START,
+    SUBSYSTEM_ALARM_RANGE_SIZE,
+    build_static_init,
 )
 
 logging.basicConfig(
@@ -47,15 +55,25 @@ def run_bms_server(
 ) -> None:
     """Start a BMS TCP server and its controller thread."""
 
-    ir_init = {
-        0: encode_soc(init_soc),
-        1: encode_soh(init_soh),
-        2: encode_capacity_kwh(init_capacity_kwh),
-    }
+    # Build init values for all IR ranges
+    all_init = build_static_init(overrides={
+        "container_soc": int(init_soc),
+        "bcu1_soc": int(init_soc),
+        "bcu1_soh": int(init_soh),
+        "rated_capacity": init_capacity_kwh,
+    })
 
-    server_ctx, stores, lock = build_tcp_server_context(
-        hr_size=0, ir_size=10,
-        hr_init=None, ir_init=ir_init,
+    # Split init by range
+    def _pick(start, size):
+        return {k: v for k, v in all_init.items() if start <= k < start + size}
+
+    server_ctx, stores, lock = build_multirange_server_context(
+        ir_ranges=[
+            (CONTAINER_RANGE_START, CONTAINER_RANGE_SIZE, _pick(CONTAINER_RANGE_START, CONTAINER_RANGE_SIZE)),
+            (BCU1_RANGE_START, BCU1_RANGE_SIZE, _pick(BCU1_RANGE_START, BCU1_RANGE_SIZE)),
+            (CONTAINER_ALARM_RANGE_START, CONTAINER_ALARM_RANGE_SIZE),
+            (SUBSYSTEM_ALARM_RANGE_START, SUBSYSTEM_ALARM_RANGE_SIZE),
+        ],
         slave_id=0,
     )
 
@@ -71,8 +89,10 @@ def run_bms_server(
         capacity_kwh=init_capacity_kwh,
     )
     log.info(f"{device_name} controller thread started (tick={tick_interval_s}s)")
-
-    log.info(f"{device_name} TCP server listening on {host}:{port}")
+    log.info(f"{device_name} Huawei registers: IR {CONTAINER_RANGE_START}-{CONTAINER_RANGE_START + CONTAINER_RANGE_SIZE - 1} (container), "
+             f"IR {BCU1_RANGE_START}-{BCU1_RANGE_START + BCU1_RANGE_SIZE - 1} (BCU-1), "
+             f"IR {SUBSYSTEM_ALARM_RANGE_START}-{SUBSYSTEM_ALARM_RANGE_START + SUBSYSTEM_ALARM_RANGE_SIZE - 1} (alarm)")
+    log.info(f"{device_name} unit_id=0, TCP server listening on {host}:{port}")
     StartTcpServer(server_ctx, address=(host, port))
 
 

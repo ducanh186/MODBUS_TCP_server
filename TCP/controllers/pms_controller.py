@@ -6,7 +6,10 @@ Every tick:
 2. Split demand equally across PCS devices.
 3. Write each PCS HR 40043-40044 (fixed_active_p I32 gain=1000) via Modbus TCP.
 4. Read each PCS IR 32080-32081 (active_power I32 gain=1000) via Modbus TCP.
-5. Read each BMS IR0/1/2 (soc/soh/capacity) via Modbus TCP.
+5. Read each BMS Huawei registers via Modbus TCP:
+   - IR 30105-30106 (bcu1_soc + bcu1_soh, U16, gain=1)
+   - IR 30058-30059 (rated_capacity, U32, gain=10)
+   - IR 39014 (tele_alarm_1, SOC-based alarm bits)
 6. Compute aggregates and write PMS IR0..IR4 in own datastore.
 """
 
@@ -26,14 +29,11 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 from tcp_servers.tcp_context import (
     encode_power_kw,
     decode_power_kw,
-    decode_soc,
-    decode_soh,
-    decode_capacity_kwh,
     encode_soc,
     encode_soh,
     encode_capacity_kwh,
 )
-from register_codec import encode_i32, decode_i32
+from register_codec import encode_i32, decode_i32, decode_u16, decode_u32
 
 log = logging.getLogger("pms_controller")
 
@@ -50,11 +50,11 @@ PCS_HR_FIXED_ACTIVE_P = 40043   # I32, gain=1000, kW — write setpoint
 PCS_IR_ACTIVE_POWER   = 32080   # I32, gain=1000, kW — read output
 PCS_GAIN_POWER        = 1000
 
-# BMS registers (still 0-based)
-BMS_IR0_SOC = 0
-BMS_IR1_SOH = 1
-BMS_IR2_CAPACITY = 2
-BMS_IR3_ALARM = 3
+# BMS Huawei addresses (read via Modbus TCP)
+BMS_IR_BCU1_SOC      = 30105   # U16, gain=1, %
+BMS_IR_BCU1_SOH      = 30106   # U16, gain=1, %
+BMS_IR_RATED_CAPACITY = 30058  # U32, gain=10, kWh
+BMS_IR_TELE_ALARM_1  = 39014   # U16, SOC-based alarm bits
 
 
 def _tick(
@@ -128,19 +128,27 @@ def _tick(
         except Exception:
             log.exception(f"PMS: error communicating with {pcs_name} on port {pcs_port}")
 
-        # 5) Read paired BMS
+        # 5) Read paired BMS (Huawei addresses)
         bms_name = pairing.get(pcs_name)
         if bms_name and bms_name in bms_ports:
             bms_port = bms_ports[bms_name]
             try:
                 bms_client = ModbusTcpClient(host, port=bms_port)
                 bms_client.connect()
-                rr = bms_client.read_input_registers(BMS_IR0_SOC, count=4, device_id=0)
-                if not rr.isError():
-                    soc_sum += decode_soc(rr.registers[0])
-                    soh_sum += decode_soh(rr.registers[1])
-                    cap_sum_kwh += decode_capacity_kwh(rr.registers[2])
-                    bms_alarms[bms_name] = rr.registers[3]
+                # Read BCU-1 SOC + SOH (30105-30106, 2 contiguous U16 regs)
+                rr_soc = bms_client.read_input_registers(BMS_IR_BCU1_SOC, count=2, device_id=0)
+                if not rr_soc.isError():
+                    soc_sum += decode_u16(list(rr_soc.registers[:1]))
+                    soh_sum += decode_u16(list(rr_soc.registers[1:]))
+                # Read rated_capacity (30058-30059, U32 gain=10)
+                rr_cap = bms_client.read_input_registers(BMS_IR_RATED_CAPACITY, count=2, device_id=0)
+                if not rr_cap.isError():
+                    cap_sum_kwh += decode_u32(list(rr_cap.registers), gain=10)
+                # Read alarm (39014)
+                rr_alarm = bms_client.read_input_registers(BMS_IR_TELE_ALARM_1, count=1, device_id=0)
+                if not rr_alarm.isError():
+                    bms_alarms[bms_name] = rr_alarm.registers[0]
+                if not rr_soc.isError():
                     bms_count += 1
                 bms_client.close()
             except Exception:
@@ -155,9 +163,9 @@ def _tick(
         stores["ir"].setValues(IR3_CAP_TOTAL, [encode_capacity_kwh(cap_sum_kwh)])
 
         # Aggregate BMS alarms → PMS IR4
-        # BMS1 bits [3:0] → IR4 bits [3:0], BMS2 bits [3:0] → IR4 bits [11:8]
-        bms1_alarm = bms_alarms.get("BMS1", 0) & 0x000F
-        bms2_alarm = bms_alarms.get("BMS2", 0) & 0x000F
+        # bms1 bits [3:0] → IR4 bits [3:0], bms2 bits [3:0] → IR4 bits [11:8]
+        bms1_alarm = bms_alarms.get("bms1", 0) & 0x000F
+        bms2_alarm = bms_alarms.get("bms2", 0) & 0x000F
         pms_alarm = bms1_alarm | (bms2_alarm << 8)
         stores["ir"].setValues(IR4_ALARM, [pms_alarm])
 
