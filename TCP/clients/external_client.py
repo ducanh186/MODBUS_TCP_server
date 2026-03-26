@@ -51,7 +51,7 @@ def write_pms_demand(host: str, port: int, kw: float) -> None:
     client = ModbusTcpClient(host, port=port)
     client.connect()
     u16 = encode_power_kw(kw)
-    rr = client.write_register(PMS_HR0_DEMAND, u16, device_id=1)
+    rr = client.write_register(PMS_HR0_DEMAND, u16, device_id=0)
     if rr.isError():
         print(f"ERROR writing PMS demand: {rr}")
     else:
@@ -65,7 +65,7 @@ def read_pms(host: str, port: int) -> None:
     client.connect()
 
     # HR0 demand
-    rr = client.read_holding_registers(PMS_HR0_DEMAND, count=1, device_id=1)
+    rr = client.read_holding_registers(PMS_HR0_DEMAND, count=1, device_id=0)
     if rr.isError():
         print(f"ERROR reading PMS HR0: {rr}")
         demand_kw = None
@@ -73,7 +73,7 @@ def read_pms(host: str, port: int) -> None:
         demand_kw = decode_power_kw(rr.registers[0])
 
     # IR0..IR3
-    rr = client.read_input_registers(PMS_IR0_TOTAL_POWER, count=4, device_id=1)
+    rr = client.read_input_registers(PMS_IR0_TOTAL_POWER, count=4, device_id=0)
     if rr.isError():
         print(f"ERROR reading PMS IR: {rr}")
         client.close()

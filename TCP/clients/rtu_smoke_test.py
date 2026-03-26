@@ -10,6 +10,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 
 from pymodbus.client import ModbusTcpClient, ModbusSerialClient
 from tcp_servers.tcp_context import decode_power_kw
+from register_codec import decode_i32
 
 DEFAULT_HOST = "127.0.0.1"
 PCS1_PORT = 15021
@@ -24,11 +25,11 @@ TOLERANCE_KW = 0.2
 def read_pcs_ir0(host: str, port: int) -> float:
     client = ModbusTcpClient(host, port=port)
     client.connect()
-    rr = client.read_input_registers(0, count=1, device_id=1)
+    rr = client.read_input_registers(32080, count=2, device_id=0)
     client.close()
     if rr.isError():
         raise RuntimeError(f"Cannot read PCS on port {port}: {rr}")
-    return decode_power_kw(rr.registers[0])
+    return decode_i32(list(rr.registers), gain=1000)
 
 
 def read_mm_ir0(com_port: str, slave_id: int, baudrate: int) -> float:
