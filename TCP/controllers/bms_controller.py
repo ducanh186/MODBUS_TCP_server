@@ -28,15 +28,18 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tcp_servers"))
 
 from tcp_servers.tcp_context import (
-    decode_power_kw,
     decode_capacity_kwh,
     encode_soc,
 )
+from register_codec import decode_i32
 
 log = logging.getLogger("bms_controller")
 
-# Register addresses (0-based)
-PCS_IR0_ACTIVE_POWER = 0
+# PCS Huawei addresses (read via Modbus TCP)
+PCS_IR_ACTIVE_POWER = 32080   # I32, gain=1000, kW
+PCS_GAIN_POWER      = 1000
+
+# BMS own registers (0-based, BMS not Huawei-ized yet)
 BMS_IR0_SOC = 0
 BMS_IR2_CAPACITY = 2
 BMS_IR3_ALARM = 3
@@ -86,14 +89,14 @@ def _loop(
         dt_s = now - last_time
         last_time = now
 
-        # 1) Read PCS active_power via Modbus TCP
+        # 1) Read PCS active_power via Modbus TCP (I32 at IR 32080-32081)
         active_power_kw = 0.0
         try:
             pcs_client = ModbusTcpClient(paired_pcs_host, port=paired_pcs_port)
             pcs_client.connect()
-            rr = pcs_client.read_input_registers(PCS_IR0_ACTIVE_POWER, count=1, device_id=1)
+            rr = pcs_client.read_input_registers(PCS_IR_ACTIVE_POWER, count=2, device_id=0)
             if not rr.isError():
-                active_power_kw = decode_power_kw(rr.registers[0])
+                active_power_kw = decode_i32(list(rr.registers), gain=PCS_GAIN_POWER)
             pcs_client.close()
         except Exception:
             log.warning(f"{device_name}: cannot read PCS active_power, assuming 0")
