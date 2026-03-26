@@ -1,14 +1,12 @@
 """
 PCS Modbus TCP server process (parameterised by device name).
 
-Address layout (Phase A — 3B):
-  HR  0-9      Legacy 0-based range (controller backward compat)
-    HR0 (RW): power_setpoint (kW, scale=0.1, int16) — written by PMS
-  HR  30000-30088  Huawei identity + rating (read-only static)
-  IR  0-9      Legacy 0-based range
-    IR0 (R):  active_power (kW, scale=0.1, int16) — computed by controller
-
-Phase B will add: HR 40039-40201 (control), IR 32000-32090 (power readings).
+Address layout (Huawei PCS2000HA full map):
+  IR  30000-30088  Identity + Rating (read-only static)
+  IR  32000-32013  Running status + Alarms (dynamic, controller writes)
+  IR  32064-32090  Power readings (dynamic, controller writes active_power)
+  IR  32463-32468  Battery cluster on PCS (dynamic)
+  HR  40039-40044  Control commands (PMS writes fixed_active_p at 40043)
 """
 
 from __future__ import annotations
@@ -26,6 +24,14 @@ from tcp_context import build_multirange_server_context
 from specs.pcs_registers import (
     STATIC_RANGE_START,
     STATIC_RANGE_SIZE,
+    STATUS_RANGE_START,
+    STATUS_RANGE_SIZE,
+    POWER_RANGE_START,
+    POWER_RANGE_SIZE,
+    BATTERY_RANGE_START,
+    BATTERY_RANGE_SIZE,
+    CONTROL_RANGE_START,
+    CONTROL_RANGE_SIZE,
     build_static_init,
 )
 
@@ -51,13 +57,15 @@ def run_pcs_server(
 
     server_ctx, stores, lock = build_multirange_server_context(
         hr_ranges=[
-            (0, 10, {0: 0}),                                    # legacy: HR0 = setpoint
-            (STATIC_RANGE_START, STATIC_RANGE_SIZE, static_init),  # Huawei identity+rating
+            (CONTROL_RANGE_START, CONTROL_RANGE_SIZE, {}),         # HR 40039-40044: control
         ],
         ir_ranges=[
-            (0, 10, {0: 0}),                                    # legacy: IR0 = active_power
+            (STATIC_RANGE_START, STATIC_RANGE_SIZE, static_init),  # IR 30000-30088: identity+rating
+            (STATUS_RANGE_START, STATUS_RANGE_SIZE, {}),           # IR 32000-32013: status+alarms
+            (POWER_RANGE_START, POWER_RANGE_SIZE, {}),             # IR 32064-32090: power readings
+            (BATTERY_RANGE_START, BATTERY_RANGE_SIZE, {}),         # IR 32463-32468: battery cluster
         ],
-        slave_id=1,
+        slave_id=0,
     )
 
     from controllers.pcs_controller import start_pcs_controller
@@ -70,9 +78,10 @@ def run_pcs_server(
         tick_interval_s=tick_interval_s,
     )
     log.info(f"{device_name} controller thread started (tick={tick_interval_s}s)")
-    log.info(f"{device_name} Huawei static registers: HR {STATIC_RANGE_START}-{STATIC_RANGE_START + STATIC_RANGE_SIZE - 1}")
-
-    log.info(f"{device_name} TCP server listening on {host}:{port}")
+    log.info(f"{device_name} Huawei registers: IR {STATIC_RANGE_START}-{STATIC_RANGE_START + STATIC_RANGE_SIZE - 1} (static), "
+             f"IR {POWER_RANGE_START}-{POWER_RANGE_START + POWER_RANGE_SIZE - 1} (power), "
+             f"HR {CONTROL_RANGE_START}-{CONTROL_RANGE_START + CONTROL_RANGE_SIZE - 1} (control)")
+    log.info(f"{device_name} unit_id=0, TCP server listening on {host}:{port}")
     StartTcpServer(server_ctx, address=(host, port))
 
 
