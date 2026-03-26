@@ -56,7 +56,7 @@ def run_bms_server(
     server_ctx, stores, lock = build_tcp_server_context(
         hr_size=0, ir_size=10,
         hr_init=None, ir_init=ir_init,
-        slave_id=1,
+        slave_id=0,
     )
 
     from controllers.bms_controller import start_bms_controller
