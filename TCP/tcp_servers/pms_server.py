@@ -1,12 +1,17 @@
 """
-PMS Modbus TCP server process.
+PMS (SmartLogger) Modbus TCP server process — Huawei address map.
 
-Exposes:
-  HR0 (RW): demand_control_power (kW, scale=0.1, int16)
-  IR0 (R):  active_power_total   (kW, scale=0.1, int16)
-  IR1 (R):  soc_avg              (%,  scale=1,   uint16)
-  IR2 (R):  soh_avg              (%,  scale=1,   uint16)
-  IR3 (R):  capacity_total       (kWh,scale=0.1, uint16)
+Address layout (Holding Registers only — FC03/FC06/FC10):
+  HR  40420-40429  Control (active/reactive adj, direction, power factor)
+  HR  40521-40577  Telemetry (input power, active power, voltages, currents)
+  HR  40713-40722  Identity (ESN string)
+  HR  50000-50001  Alarm (SmartLogger alarm bitfields)
+
+No Input Registers — SmartLogger uses HR for everything.
+
+Simulator extension:
+  HR 40424 = demand_direction (0=discharge, 1=charge).
+  Real spec uses 40424 as "Active adjustment (alternative)" U32.
 
 Runs the PMS controller loop in a background thread within this process.
 """
@@ -23,11 +28,17 @@ from pymodbus.server import StartTcpServer
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from tcp_context import (
-    build_tcp_server_context,
-    encode_soc,
-    encode_soh,
-    encode_capacity_kwh,
+from tcp_context import build_multirange_server_context
+from specs.pms_registers import (
+    CONTROL_RANGE_START,
+    CONTROL_RANGE_SIZE,
+    TELEMETRY_RANGE_START,
+    TELEMETRY_RANGE_SIZE,
+    IDENTITY_RANGE_START,
+    IDENTITY_RANGE_SIZE,
+    ALARM_RANGE_START,
+    ALARM_RANGE_SIZE,
+    build_static_init,
 )
 
 logging.basicConfig(
@@ -50,18 +61,20 @@ def run_pms_server(
 ) -> None:
     """Start the PMS TCP server and its controller thread."""
 
-    # Initial register values
-    hr_init = {0: 0}  # demand_control_power = 0
-    ir_init = {
-        0: 0,                          # active_power_total
-        1: encode_soc(50.0),           # soc_avg
-        2: encode_soh(100.0),          # soh_avg
-        3: encode_capacity_kwh(200.0), # capacity_total (2 BMS × 100 kWh)
-    }
+    # Build init values for all HR ranges
+    all_init = build_static_init()
 
-    server_ctx, stores, lock = build_tcp_server_context(
-        hr_size=10, ir_size=10,
-        hr_init=hr_init, ir_init=ir_init,
+    # Split init by range
+    def _pick(start, size):
+        return {k: v for k, v in all_init.items() if start <= k < start + size}
+
+    server_ctx, stores, lock = build_multirange_server_context(
+        hr_ranges=[
+            (CONTROL_RANGE_START, CONTROL_RANGE_SIZE, _pick(CONTROL_RANGE_START, CONTROL_RANGE_SIZE)),
+            (TELEMETRY_RANGE_START, TELEMETRY_RANGE_SIZE, _pick(TELEMETRY_RANGE_START, TELEMETRY_RANGE_SIZE)),
+            (IDENTITY_RANGE_START, IDENTITY_RANGE_SIZE, _pick(IDENTITY_RANGE_START, IDENTITY_RANGE_SIZE)),
+            (ALARM_RANGE_START, ALARM_RANGE_SIZE),
+        ],
         slave_id=0,
     )
 
@@ -80,7 +93,15 @@ def run_pms_server(
     )
     log.info(f"PMS controller thread started (tick={tick_interval_s}s)")
 
-    log.info(f"PMS TCP server listening on {host}:{port}")
+    log.info(
+        "PMS Huawei registers: HR %d-%d (control), HR %d-%d (telemetry), "
+        "HR %d-%d (identity), HR %d-%d (alarm)",
+        CONTROL_RANGE_START, CONTROL_RANGE_START + CONTROL_RANGE_SIZE - 1,
+        TELEMETRY_RANGE_START, TELEMETRY_RANGE_START + TELEMETRY_RANGE_SIZE - 1,
+        IDENTITY_RANGE_START, IDENTITY_RANGE_START + IDENTITY_RANGE_SIZE - 1,
+        ALARM_RANGE_START, ALARM_RANGE_START + ALARM_RANGE_SIZE - 1,
+    )
+    log.info(f"PMS unit_id=0, TCP server listening on {host}:{port}")
     StartTcpServer(server_ctx, address=(host, port))
 
 
