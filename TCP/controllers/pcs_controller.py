@@ -14,7 +14,7 @@ Every tick:
    - 32080-32081 active_power (I32, kW, gain=1000)
    - 32082-32083 reactive_power (I32, kVar, gain=1000)
    - 32084       power_factor (I16, gain=1000)
-   - 32085       grid_frequency (U16, Hz, gain=10)
+   - 32085       grid_frequency (U16, Hz, gain=100)
    - 32086       efficiency (U16, %, gain=100)
    - 32087       internal_temp (I16, C, gain=10)
    - 32088       insulation_res (U16, MOhm, gain=1000)
@@ -62,7 +62,7 @@ IR_PEAK_ACTIVE_P   = 32078    # I32, gain=1000, kW
 IR_ACTIVE_POWER    = 32080    # I32, gain=1000, kW
 IR_REACTIVE_POWER  = 32082    # I32, gain=1000, kVar
 IR_POWER_FACTOR    = 32084    # I16, gain=1000
-IR_GRID_FREQUENCY  = 32085    # U16, gain=10, Hz
+IR_GRID_FREQUENCY  = 32085    # U16, gain=100, Hz
 IR_EFFICIENCY      = 32086    # U16, gain=100, %
 IR_INTERNAL_TEMP   = 32087    # I16, gain=10, C
 IR_INSULATION_RES  = 32088    # U16, gain=1000, MOhm
@@ -83,9 +83,9 @@ HR_FIXED_ACTIVE_P  = 40043    # I32, gain=1000, kW — setpoint from PMS
 
 GAIN_POWER = 1000
 
-# BMS registers (still 0-based, BMS not Huawei-ized yet)
-BMS_IR0_SOC = 0
-BMS_IR1_SOH = 1
+# BMS registers — Huawei LUNA2000C BCU-1 (30105-30106)
+BMS_IR_BCU1_SOC = 30105    # U16, gain=1, %
+BMS_IR_BCU1_SOH = 30106    # U16, gain=1, %
 
 # Running status bits
 STATUS_GRID_CONNECTED = 0x0002  # bit1
@@ -105,15 +105,15 @@ DEVICE_STATUS_PQ_RUNNING = 0x0206  # runs: PQ running
 
 
 def _read_bms_soc_soh(host: str, port: int) -> Tuple[float, float]:
-    """Read SOC and SOH from paired BMS (0-based addressing)."""
+    """Read SOC and SOH from paired BMS — Huawei BCU-1 (30105-30106)."""
     soc, soh = 50.0, 100.0  # fallback
     try:
         c = ModbusTcpClient(host, port=port)
         c.connect()
-        rr = c.read_input_registers(BMS_IR0_SOC, count=2, device_id=0)
+        rr = c.read_input_registers(BMS_IR_BCU1_SOC, count=2, device_id=0)
         if not rr.isError() and len(rr.registers) >= 2:
-            soc = decode_soc(rr.registers[0])
-            soh = float(rr.registers[1])  # BMS IR1 = SOH (uint16, 1%/LSB)
+            soc = float(rr.registers[0])   # BCU-1 SOC, U16, gain=1, %
+            soh = float(rr.registers[1])   # BCU-1 SOH, U16, gain=1, %
         c.close()
     except Exception:
         pass
@@ -239,7 +239,7 @@ def _tick(
         ir.setValues(IR_ACTIVE_POWER,   encode_i32(active_power_kw, gain=1000))
         ir.setValues(IR_REACTIVE_POWER, encode_i32(reactive_power_kvar, gain=1000))
         ir.setValues(IR_POWER_FACTOR,   encode_i16(power_factor, gain=1000))
-        ir.setValues(IR_GRID_FREQUENCY, encode_u16(grid_freq_hz, gain=10))
+        ir.setValues(IR_GRID_FREQUENCY, encode_u16(grid_freq_hz, gain=100))
         ir.setValues(IR_EFFICIENCY,     encode_u16(efficiency_pct, gain=100))
         ir.setValues(IR_INTERNAL_TEMP,  encode_i16(temp_c, gain=10))
         ir.setValues(IR_INSULATION_RES, encode_u16(NOMINAL_INSULATION_MOHM, gain=1000))
