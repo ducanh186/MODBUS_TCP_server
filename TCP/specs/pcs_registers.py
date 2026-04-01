@@ -100,7 +100,7 @@ POWER_POINTS = [
     {"name": "active_power",    "address": 32080, "quantity": 2, "dtype": "I32", "gain": 1000, "unit": "kW",   "access": "RO"},
     {"name": "reactive_power",  "address": 32082, "quantity": 2, "dtype": "I32", "gain": 1000, "unit": "kVar", "access": "RO"},
     {"name": "power_factor",    "address": 32084, "quantity": 1, "dtype": "I16", "gain": 1000, "unit": "-",    "access": "RO"},
-    {"name": "grid_frequency",  "address": 32085, "quantity": 1, "dtype": "U16", "gain": 10,   "unit": "Hz",   "access": "RO"},
+    {"name": "grid_frequency",  "address": 32085, "quantity": 1, "dtype": "U16", "gain": 100,  "unit": "Hz",   "access": "RO"},
     {"name": "efficiency",      "address": 32086, "quantity": 1, "dtype": "U16", "gain": 100,  "unit": "%",    "access": "RO"},
     {"name": "internal_temp",   "address": 32087, "quantity": 1, "dtype": "I16", "gain": 10,   "unit": "C",    "access": "RO"},
     {"name": "insulation_res",  "address": 32088, "quantity": 1, "dtype": "U16", "gain": 1000, "unit": "MOhm", "access": "RO"},
